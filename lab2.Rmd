@@ -1,0 +1,662 @@
+---
+title: "Лабораторная 2"
+author: "Кривенко Тимур Сергеевич     **Б23-902**"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(outliers) 
+library(ggplot2)
+library(EnvStats)
+library(knitr)
+library(MASS)
+library(fitdistrplus)
+
+setwd("C:/Users/timur/OneDrive/Рабочий стол/Studying/aw5/Statistics_5/lab002")
+
+```
+В нашем документе всего 3 листа, прочитаем каждый из них и сразу переименуем столбцы без имен:
+
+```{r, message=FALSE}
+emissions_data <- as.data.frame(read_excel("Вариант27_Б23-902_Кривенко.xlsx", sheet = 1))
+other_info <- as.data.frame(read_excel("Вариант27_Б23-902_Кривенко.xlsx", sheet = 2))
+wind_rose <- as.data.frame(read_excel("Вариант27_Б23-902_Кривенко.xlsx", sheet = 3))
+colnames(emissions_data)[1] <- "Дата"
+colnames(wind_rose)[1] <- "Направление"
+```
+
+Посмотрим, какие у нас получились данные:
+```{r}
+head(emissions_data)
+head(other_info)
+head(wind_rose)
+```
+
+
+1. Оценим совокупные затраты на установку **очистных сооружений**.
+Для этого возьмем сумму по сумму по 5 и 6 столбику из таблицы *other_info*. 
+Также для пункта 8, рассчитаем затраты по веществам
+
+```{r}
+print(paste("Затраты на реализацию стратегии =", (sum(other_info[, 5]) + (sum(other_info[, 6]) * 5)) * 1000, "₽"))
+
+capexes <- vector("numeric")
+for(i in 1: 5){
+  capexes[i] <- (other_info[i, 5] + other_info[i, 6] * 5) * 1000
+}
+print(capexes)
+
+```
+Видим, что для реализации первой стратегии(установка очистных сооружений), потребуется 25 252 000 ₽.
+
+2. Очистим данные от выбросов при помощи одностороннего критерия Граббса.
+Критерий Грабса считается наиболее мощным критерием для определения выбросов. Но все тесты они в целом валидны, только для
+случаев, когда распределение нормальное. В качестве аргументов используется параметры нормального распределения.
+![Формула для расчета односторонних критериев Граббса](C:/Users/timur/OneDrive/Рабочий стол/Studying/aw5/Statistics_5/lab002/Grubbs.png)
+Для начала рассчитаем критическое значение для всех выборок с уровнем
+значимости α = 0.05. Критическое значение будем использовать для всех выборок т.к. кол-во элементов одинаково.
+
+```{r}
+n <- nrow(emissions_data) 
+alpha <- 0.05  
+
+critical_student <- qt(1 - alpha/(n), n - 2)
+critical_grubbs <- ((n - 1) / sqrt(n)) * sqrt(critical_student^2 / (n - 2 + critical_student^2))
+print(paste("Критическое значение Граббса = ", critical_grubbs))
+```
+Теперь напишем две функции для расчета критерия.
+```{r}
+grubbs_max <- function(array) {
+  array <- na.omit(array)
+  max_el <- max(array)
+  m <- mean(array)
+  s <- sd(array)
+  if (s == 0) return(NA)
+  return((max_el - m) / s)
+}
+
+grubbs_min <- function(array) {
+  array <- na.omit(array)
+  min_el <- min(array)
+  m <- mean(array)
+  s <- sd(array)
+  if (s == 0) return(NA)
+  return((m - min_el) / s)
+}
+```
+  
+  
+  2.1 Диоксид углерода
+  
+  Для начала нужно проверить распределение выборки на нормальность при помощи критерий Колмогорова-Смирнова, который показывает, насколько сильно отличаются два распределения.
+```{r}
+data_clean <- na.omit(emissions_data[[2]])
+ks.test(data_clean, "pnorm", mean(data_clean), sd(data_clean))
+```
+  p-value >> 0.05, нет оснований отвергать гипотезу о нормальном распределении.
+  Теперь применим односторонний критерий Граббса. Для начала уберем минимальные, а затем максимальные выбросы. Выбросы будем     заменять на NA. 
+```{r}
+while (TRUE) {
+  if (!is.na(grubbs_min(emissions_data[[3]])) && grubbs_min(emissions_data[[3]]) > critical_grubbs) {
+    min_pos <- which.min(emissions_data[[3]])
+    emissions_data[min_pos, 3] <- NA  
+  } else {
+    break
+  }
+}
+
+while (TRUE) {
+  if (!is.na(grubbs_max(emissions_data[[3]])) && grubbs_max(emissions_data[[3]]) > critical_grubbs) {
+    max_pos <- which.max(emissions_data[[3]])
+    emissions_data[max_pos, 3] <- NA  
+  } else {
+    break
+  }
+}
+
+print(paste(length(emissions_data[[3]])))
+```
+  
+  
+  2.2 Фосген 
+  
+  Проверка распределения:
+  
+```{r}
+data_clean <- na.omit(emissions_data[[3]])
+ks.test(data_clean, "pnorm", mean(data_clean), sd(data_clean))
+```
+  Также нет оснований отвергать гипотезу о нормальном распределении.
+  Аналогично удаляем выбросы:
+```{r}
+while (TRUE) {
+  if (!is.na(grubbs_min(emissions_data[[3]])) && grubbs_min(emissions_data[[3]]) > critical_grubbs) {
+    min_pos <- which.min(emissions_data[[3]])
+    emissions_data[min_pos, 3] <- NA  
+  } else {
+    break
+  }
+}
+
+while (TRUE) {
+  if (!is.na(grubbs_max(emissions_data[[3]])) && grubbs_max(emissions_data[[3]]) > critical_grubbs) {
+    max_pos <- which.max(emissions_data[[3]])
+    emissions_data[max_pos, 3] <- NA  
+  } else {
+    break
+  }
+}
+
+
+print(paste(length(emissions_data[[3]])))
+
+
+
+```
+  
+  
+  
+  
+  
+  2.3 Диоксин
+```{r}
+data_clean <- na.omit(emissions_data[[4]])
+ks.test(data_clean, "pnorm", mean(data_clean), sd(data_clean))
+
+```
+  
+  
+  2.4 Диоксид серы
+```{r}
+data_clean <- na.omit(emissions_data[[5]])
+ks.test(data_clean, "pnorm", mean(data_clean), sd(data_clean))
+```
+  2.5 Этиленоксид
+```{r}
+data_clean <- na.omit(emissions_data[[6]])
+ks.test(data_clean, "pnorm", mean(data_clean), sd(data_clean))
+```
+В случае с Диоксином, Диоксидом серы и Этиленоксидом выборки не имеют нормального распределения. Будем также удалять по методу граббса, но уменьшать уровень значимости до 0.01 и относится к результатам с **опаской**
+Расчет критического значения Граббса с уровнем значимости 0.01
+```{r}
+n <- nrow(emissions_data) 
+alpha <- 0.01  
+
+critical_student <- qt(1 - alpha/(n), n - 2)
+sus_critical_grubbs <- ((n - 1) / sqrt(n)) * sqrt(critical_student^2 / (n - 2 + critical_student^2))
+print(paste("Критическое значение Граббса = ", sus_critical_grubbs))
+```
+Удаление из Диоксина
+```{r}
+while (TRUE) {
+  if (!is.na(grubbs_min(emissions_data[[4]])) && grubbs_min(emissions_data[[4]]) > sus_critical_grubbs) {
+    min_pos <- which.min(emissions_data[[4]])
+    emissions_data[min_pos, 4] <- NA  
+  } else {
+    break
+  }
+}
+
+while (TRUE) {
+  if (!is.na(grubbs_max(emissions_data[[4]])) && grubbs_max(emissions_data[[4]]) > sus_critical_grubbs) {
+    max_pos <- which.max(emissions_data[[4]])
+    emissions_data[max_pos, 4] <- NA  
+  } else {
+    break
+  }
+}
+
+print(paste(length(emissions_data[[4]])))
+```
+
+
+Удаление из Диоксида серы
+```{r}
+while (TRUE) {
+  if (!is.na(grubbs_min(emissions_data[[5]])) && grubbs_min(emissions_data[[5]]) > sus_critical_grubbs) {
+    min_pos <- which.min(emissions_data[[5]])
+    emissions_data[min_pos, 5] <- NA  
+  } else {
+    break
+  }
+}
+
+while (TRUE) {
+  if (!is.na(grubbs_max(emissions_data[[5]])) && grubbs_max(emissions_data[[5]]) > sus_critical_grubbs) {
+    max_pos <- which.max(emissions_data[[5]])
+    emissions_data[max_pos, 5] <- NA  
+  } else {
+    break
+  }
+}
+
+print(paste(length(emissions_data[[5]])))
+```
+
+
+Удаление из Этиленоксида
+
+```{r}
+while (TRUE) {
+  if (!is.na(grubbs_min(emissions_data[[6]])) && grubbs_min(emissions_data[[6]]) > sus_critical_grubbs) {
+    min_pos <- which.min(emissions_data[[6]])
+    emissions_data[min_pos, 6] <- NA  
+  } else {
+    break
+  }
+}
+
+while (TRUE) {
+  if (!is.na(grubbs_max(emissions_data[[6]])) && grubbs_max(emissions_data[[6]]) > sus_critical_grubbs) {
+    max_pos <- which.max(emissions_data[[6]])
+    emissions_data[max_pos, 6] <- NA  
+  } else {
+    break
+  }
+}
+
+print(paste(length(emissions_data[[6]])))
+```
+
+
+3. Теперь оценим степень близости распределений концентраций выбросов к 
+известным теоритическим законам распределения. Для сравнения будем использовать Нормальный, Гамма, 
+Экспоненциальный, Вейбулла распределения. Будем использовать критерий Андерсона-Дарлинга.
+```{r, message=FALSE, warning=FALSE }
+closest_dist <- data.frame(matrix(nrow=5, ncol=4))
+names(closest_dist) <- c("Нормальное", "Гамма", "Экспоненциальное", "Вейбулла")
+rownames(closest_dist) <- c("Диоксид углерода", "Фосген", "Диоксин", "Диоксид серы", "Этиленоксид")
+for (i in 1:5){
+  data_clean <- na.omit(emissions_data[[i + 1]])  # если данные в emissions_data с 2 по 6
+  data_clean <- data_clean[is.finite(data_clean)]  
+
+  res_norm <- gofTest(data_clean, distribution = "norm", test = "ad", withInference = TRUE)
+  res_gamma <- gofTest(data_clean, distribution = "gamma", test = "ad", withInference = TRUE)
+  res_exp <- gofTest(data_clean, distribution = "exp", test = "ad", withInference = TRUE)
+  res_weibull <- gofTest(data_clean, distribution = "weibull", test = "ad", withInference = TRUE)
+
+  closest_dist[i, 1] <- round(res_norm$p.value, 3)
+  closest_dist[i, 2] <- round(res_gamma$p.value, 3)
+  closest_dist[i, 3] <- round(res_exp$p.value, 3)
+  closest_dist[i, 4] <- round(res_weibull$p.value, 3)
+}
+kable(closest_dist, caption="Таблица 1. Близость к известным распределениям.")
+```
+
+
+
+4.1 Теперь построим графики с отображением эмпирических и теоретических 
+распределений и плотностей распределений для сравниваемых законов.
+Начнем с графиков распределения.
+```{r, warning=FALSE}
+
+for (i in 1:5){
+  data <- emissions_data[[i+1]]
+
+  # Очистка 
+  data <- data[is.finite(data)]       
+  data <- na.omit(data_clean)        
+  data <- data[data > 0]   
+
+
+  emp_cdf <- ecdf(data)
+  plot(emp_cdf,
+       main = paste("Эмпирическая функция распределения",
+                    names(emissions_data)[i+1]),
+       xlab = "x",
+       ylab = "F(x)",
+       lwd = 2)
+  mean_val <- mean(data)
+  sd_val <- sd(data)
+  curve(pnorm(x, mean_val, sd_val), 
+      from = min(data), 
+      to = max(data), 
+      col = "blue", lwd = 2, add = TRUE)
+  
+  fit_gamma <- fitdistr(data, "gamma")
+  curve(pgamma(x, shape=fit_gamma$estimate["shape"],
+               rate=fit_gamma$estimate["rate"]), 
+                col="lightgreen", lwd=2, add=TRUE)
+  
+  lambda_exp <- 1 / mean(data)
+  curve(pexp(x, rate = lambda_exp), 
+      from = min(data), to = max(data), 
+      col = "yellow", lwd = 2, add = TRUE)
+  
+  fit_weibull <- fitdist(data, "weibull")
+  shape_w <- fit_weibull$estimate["shape"]
+  scale_w <- fit_weibull$estimate["scale"]
+  curve(pweibull(x, shape = shape_w, scale = scale_w), 
+      from = min(data), to = max(data),
+      col = "red", lwd = 2, add = TRUE)
+
+  legend("bottomright",
+         legend=c("Эмпирическая", "Нормальная", "Гамма", "Вейбулл"),
+         col=c("black", "lightgreen", "yellow", "red"), lwd=2)
+
+}
+```
+
+
+4.2 Плотности распределений
+```{r, warning=FALSE}
+graph_names <- c("Диоксид углерода", "Фосген", "Диоксин", "Диоксид серы", "Этиленоксид")
+for(i in 1:5){
+  data <- emissions_data[[i+1]]
+
+  
+  data <- data[is.finite(data)] 
+  
+  data_length <- length(data)
+  
+  mean_val <- mean(data)
+  sd_val <- sd(data)
+  
+  params_gamma <- fitdistr(data, "gamma")
+  shape_gamma <- params_gamma$estimate["shape"]
+  rate_gamma <- params_gamma$estimate["rate"]
+  
+  params_exp <- fitdistr(data, "exponential")
+  rate_exp <- params_exp$estimate["rate"]
+  
+  params_weibull <- fitdistr(data, "weibull")
+  shape_weibull <- params_weibull$estimate["shape"]
+  scale_weibull <- params_weibull$estimate["scale"]
+  
+  x_vals <- seq(min(data), max(data), length.out = 3653)
+  
+  norm_emissions <- dnorm(x_vals, mean = mean_val, sd = sd_val)
+  gamma_emissions <- dgamma(x_vals, shape = shape_gamma, rate = rate_gamma)
+  ex_emissions <- dexp(x_vals, rate = rate_exp)
+  weib_emissions <- dweibull(x_vals, shape = shape_weibull, scale = scale_weibull)
+  
+  plot(density(data), main = graph_names[i], xlab = "Значения", ylab = "Плотность", lwd = 2)
+  lines(x_vals, norm_emissions, col = "blue", lwd = 2)
+  lines(x_vals, gamma_emissions, col = "lightgreen", lwd = 2)
+  lines(x_vals, ex_emissions, col = "yellow", lwd = 2)
+  lines(x_vals, weib_emissions, col = "red", lwd = 2)
+  legend("topright",
+         legend = c("Эмпирическая", "Нормальное", "Гамма", "Экспоненциальное", "Вейбулла"),
+         col = c("black", "blue", "lightgreen", "yellow", "red"), lwd = 2)
+}
+```
+
+
+
+5.Построим гистограммы распределений
+
+```{r, warning=FALSE, message=FALSE}
+for(i in 1:5){
+  hist(emissions_data[[i + 1]], 
+       main = c("Гистограмма", graph_names[i]), 
+       xlab = "Значения", 
+       ylab = "частота",  
+       color = "grey")
+}
+
+```
+
+
+6.1 Сформируем эмпирическую функцию распределения для Диоксина
+Воспользуемся определением: F(x)=nx/n, где nx - количество вариант строго меньших, чем x, а n - размер выборки.
+```{r}
+
+freq_diox <- table(sort(emissions_data$Диоксин))
+
+emp_diox <- data.frame(matrix(nrow = length(freq_diox) + 1, ncol = 4))
+names(emp_diox) <- c("", "ni","", "xi")
+emp_diox[, 3] <- "если"
+emp_diox[, 1] <- "F(x) = "
+emp_diox[1, 2] <- 0
+emp_diox[1, 4] <- paste("x <= ", names(freq_diox)[2])
+diox_n <- 0
+for(i in 1:length(freq_diox)){
+  diox_n <- diox_n + as.numeric(freq_diox[i])
+  var_sum_diox <- diox_n / length(freq_diox)
+  emp_diox[i + 1, 2] <- var_sum_diox
+  emp_diox[i + 1, 3] <- "если"
+  emp_diox[i + 1, 4] <- paste(names(freq_diox)[i], "< x <= ", names(freq_diox)[i+1])
+}
+emp_diox[length(freq_diox)+1, 2] <- 1
+emp_diox[length(freq_diox)+1, 4] <- paste("x > ", max(emissions_data$Диоксин))
+
+head(emp_diox)
+tail(emp_diox)
+```
+
+
+6.2 Сформируем эмпирическую функцию распределения для Этиленоксида
+```{r}
+freq_etil <- table(sort(emissions_data$Этиленоксид))
+
+emp_etil <- data.frame(matrix(nrow = length(freq_etil) + 1, ncol = 4))
+names(emp_etil) <- c("", "ni","", "xi")
+emp_etil[, 3] <- "если"
+emp_etil[, 1] <- "F(x) = "
+emp_etil[1, 2] <- 0
+emp_etil[1, 4] <- paste("x <= ", names(freq_etil)[2])
+etil_n <- 0
+for(i in 1:length(freq_etil)){
+  etil_n <- etil_n + as.numeric(freq_etil[i])
+  var_sum_etil <- etil_n / length(freq_etil)
+  emp_etil[i + 1, 2] <- var_sum_etil
+  emp_etil[i + 1, 3] <- "если"
+  emp_etil[i + 1, 4] <- paste(names(freq_etil)[i], "< x <= ", names(freq_etil)[i+1])
+}
+emp_etil[length(freq_etil)+1, 2] <- 1
+emp_etil[length(freq_etil)+1, 4] <- paste("x > ", max(emissions_data$Этиленоксид))
+
+head(emp_etil)
+tail(emp_etil)
+```
+
+
+7. Оценим вероятность суточного штрафа каждого вида вредных веществ, при 
+постоянном гипотетическом условии наиболее неблагоприятного ветра.
+На основе наших данных наиболее неблагоприятным ветром является Юго-Восточный с оценкой эффективности 90%.
+P(штраф) = P(X > ПДК/0.9)
+Диоксид углерода	0.282	0.00	0	0.889
+Фосген	0.992	0.01	0	0.000
+Диоксин	0.000	0.00	0	0.000
+Диоксид серы	0.000	0.00	0	0.994
+Этиленоксид	0.000	0.00	0	0.000
+
+```{r}
+fine_probabilities <- vector("numeric")
+wc_probability <- data.frame(matrix(nrow=5, ncol=4)) 
+names(wc_probability) <- c("","","","")
+for (i in 1: 5){
+  wc_probability[i, 1] <- "P(X*z < e) ="
+  wc_probability[i, 3] <- "для"
+
+}
+ 
+#Диоксид углерода 
+fit <- fitdist(emissions_data[[2]], "weibull")
+dc_shape <- fit$estimate["shape"]
+dc_scale <- fit$estimate["scale"]
+dc_prob <- pweibull(700/0.9, shape=dc_shape, scale=dc_scale, lower.tail = FALSE)
+wc_probability[1, 2] <- dc_prob
+wc_probability[1, 4] <- names(emissions_data)[2]
+fine_probabilities[1] <- dc_prob
+
+#Фосген
+f_m <- mean(emissions_data[[3]], na.rm = TRUE)
+f_sd <- sd(emissions_data[[3]], na.rm = TRUE)
+f_prob <- pnorm(0.5/0/9, mean=f_m, sd = f_sd, lower.tail = FALSE)
+wc_probability[2, 2] <- f_prob
+wc_probability[2, 4] <- names(emissions_data)[3]
+fine_probabilities[2] <- f_prob
+
+#Диоксин
+d_emp   <- ecdf(emissions_data[[4]])
+print(d_emp)
+d_prob <- 1 - d_emp(0.5/0.9)      # P(X > q)
+wc_probability[3, 2] <- d_prob
+wc_probability[3, 4] <- names(emissions_data)[4]
+fine_probabilities[3] <- f_prob
+
+#Диоксид серы
+fit <- fitdist(emissions_data[[5]], "weibull")
+ds_shape <- fit$estimate["shape"]
+ds_scale <- fit$estimate["scale"]
+ds_prob <- pweibull(0.05/0.9, shape=ds_shape, scale=ds_scale, lower.tail = FALSE)
+wc_probability[4, 2] <- ds_prob
+wc_probability[4, 4] <- names(emissions_data)[5]
+fine_probabilities[4] <- ds_prob
+
+# Этиленоксид
+e_emp   <- ecdf(emissions_data[[6]])
+print(e_emp)
+e_prob <- 1 - e_emp(1/0.9)  
+wc_probability[5, 2] <- e_prob
+wc_probability[5, 4] <- names(emissions_data)[6]
+fine_probabilities[5] <- e_prob
+
+kable(wc_probability)
+
+```
+
+8. Посчитаем суммарный годовой штраф за превышение ПДК.
+Будем считать, что штраф начисляется **ежегодно** при превышении ПДК.
+```{r}
+fines <- c(95, 345, 250, 145, 270)
+summ_fines <- 0
+for(i in 1:5){
+  summ_fines <- summ_fines + fines[i] * (365 * 5 * fine_probabilities[i])
+}
+paste("Сумма штрафов за 5 лет при условии худшего ветра = ", round(summ_fines * 1000), "₽")
+ind_fines <- vector("numeric")
+for (i in 1:5){
+  print(paste("Штраф за 5 лет для ", names(emissions_data)[i+1], "=", round(fines[i] * (365 * 5 * fine_probabilities[i])) * 1000, "₽"))
+  ind_fines[i] <- round(fines[i] * (365 * 5 * fine_probabilities[i])) * 1000
+}
+```
+9. Отсеим такие вещества, для которых совокупный штраф заведомо 
+меньше капитальных затрат.
+```{r}
+for (i in 1:5){
+  if (capexes[i] >= ind_fines[i]){
+      print(paste("Стоимость установки и обслуживания больше, чем сумма штрафов в худшем случае для", 
+            names(emissions_data)[i + 1]))
+  }
+  else{
+    print(paste("Сумма штрафов в худшем случае больше, чем капитальные затраты на установку очишающего оборудования    для",names(emissions_data)[i + 1]))
+  }
+}
+```
+Получается, что сразу можем отсеять Фосген и Диоксин, т.к. "Стоимость установки и обслуживания больше, чем сумма штрафов в худшем случае для Диоксид углерода"
+
+
+
+10-12. Для оставшихся веществ — составим формулу полной вероятности 
+получения штрафа при условии разной интенсивности разных направлений 
+ветров
+
+
+```{r}
+result <- data.frame(matrix(nrow = 3, ncol = 5))
+names(result) <- c("Вещество", "Вероятность", "CAPEX", "Ожидаемый штраф за 5 лет", "Рекомендация")
+result[1, 1] <- "Диоксид углерода"
+result[2, 1] <- "Диоксид серы"
+result[3, 1] <- "Этиленоксид"
+
+substances <- c("Диоксид углерода", "Диоксид серы", "Этиленоксид")
+fines <- c(95, 145, 270)
+thresholds <- c(700, 0.05, 1)
+
+wind_data <- data.frame(
+  direction = c("Север", "Северо-восток", "Восток", "Юго-восток",
+                "Юг", "Юго-запад", "Запад", "Северо-запад"),
+  days = c(16, 9, 18, 31, 87, 80, 105, 19),
+  efficiency = c(0, 0.25, 0.5, 0.9, 0.75, 0.4, 0.1, 0)
+)
+
+
+fit_dc <- fitdist(emissions_data[[2]], "weibull")
+dc_shape <- fit_dc$estimate["shape"]
+dc_scale <- fit_dc$estimate["scale"]
+
+fit_ds <- fitdist(emissions_data[[5]], "weibull")
+ds_shape <- fit_ds$estimate["shape"]
+ds_scale <- fit_ds$estimate["scale"]
+
+weibull_shapes <- c(dc_shape, ds_shape)
+weibull_scales <- c(dc_scale, ds_scale)
+
+wind_probs <- wind_data$days / 365
+eff <- wind_data$efficiency
+
+prob_weibull <- function(threshold, shape, scale, eff) {
+  if (is.na(eff) || eff == 0) return(0)
+  # P(X > threshold/eff) = 1 - F_Weibull(threshold/eff)
+  return (1 - pweibull(threshold / eff, shape = shape, scale = scale))
+}
+
+prob_ecdf <- function(sample, threshold, eff) {
+  if (is.na(eff) || eff == 0) return(0)
+  emp <- ecdf(sample)
+  return (1 - emp(threshold / eff))
+}
+
+
+full_prob_fines <- numeric(3)
+expected_fines_5_years <- numeric(3)
+
+for (i in 1:3) {
+
+  sample <- emissions_data[[i + 2]]  
+  thr <- thresholds[i]
+  fine <- fines[i]
+
+  if (i <= 2) {
+    shape <- weibull_shapes[i]
+    scale <- weibull_scales[i]
+
+    prob_per_wind <- sapply(eff, function(e) prob_weibull(thr, shape, scale, e))
+
+  } else {
+    prob_per_wind <- sapply(eff, function(e) prob_ecdf(sample, thr, e))
+  }
+
+  P_day <- sum(wind_probs * prob_per_wind, na.rm = TRUE)
+
+  full_prob_fines[i] <- P_day
+  result[i, 2] <- P_day
+
+  expected_fines_5_years[i] <- P_day * 365 * 5 * fine * 1000
+  result[i, 4] <- round(expected_fines_5_years[i])
+}
+
+capexes_cur <- capexes[c(1, 4, 5)]
+result$CAPEX <- capexes_cur
+
+for (i in 1:3) {
+  if (is.na(expected_fines_5_years[i]) || is.na(capexes_cur[i])) {
+    result[i, 5] <- NA
+  } else if (expected_fines_5_years[i] < capexes_cur[i]) {
+    result[i, 5] <- "Выгоднее платить штрафы"
+  } else {
+    result[i, 5] <- "Выгоднее установить очистное оборудование"
+  }
+}
+
+kable(result, format = "html",
+      table.attr = "style='border-collapse: separate; border-spacing: 20px 0px;'")
+
+```
+
+**Ссылки:**
+
+[t-критерий Стьюдента](https://ru.wikipedia.org/wiki/T-критерий_Стьюдента)
+
+[ГОСТ Р 8.736-2011](https://www.expertnk.ru/docs/libs/gost-r-8.736-2011.pdf)
+
+[Википедия. Критерий Граббса](https://ru.wikipedia.org/wiki/Критерий_Граббса)
+
+[GeeksForGeeks. How to Perform Grubbs’ Test in R](https://www.geeksforgeeks.org/r-language/how-to-perform-grubbs-test-in-r/)
+
+[MathProfi](https://mathprofi.com/knigi_i_kursy/files/matstat_demo.pdf)
+
